@@ -1,7 +1,6 @@
 # Miscellaneous
 *.class
 *.log
-*.pyc
 *.swp
 .DS_Store
 .atom/
@@ -23,6 +22,22 @@ migrate_working_dir/
 # is commented out by default.
 #.vscode/
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.venv/
+venv/
+ENV/
+env/
+.env
+*.env
+*.egg-info/
+dist/
+build/
+*.egg
+
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
@@ -43,3 +58,13 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+android/local.properties
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Hive local storage
+*.hive
+*.hive.lock

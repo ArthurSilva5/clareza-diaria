@@ -43,9 +43,17 @@ class _LoginScreenState extends State<LoginScreen> {
                 backgroundColor: Colors.green,
               ),
             );
-            final userData =
+            final payload =
                 (result['data'] as Map?)?.cast<String, dynamic>() ?? {};
-            // Navegar para a tela home
+            final userData =
+                (payload['user'] as Map?)?.cast<String, dynamic>() ?? {};
+            
+            // SALVAR USERID NO APISERVICE PARA USO OFFLINE
+            if (userData['id'] != null) {
+              ApiService.setCurrentUserId(userData['id'] as int);
+            }
+            
+            // NAVEGAR PARA A TELA HOME
             Navigator.pushReplacementNamed(
               context,
               '/home',
@@ -152,9 +160,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextFormField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
+                      style: const TextStyle(
+                        color: Colors.black87,
+                      ),
                       decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.white,
                         hintText: 'seu@email.com',
-                        hintStyle: const TextStyle(color: Colors.grey),
+                        hintStyle: const TextStyle(
+                          color: Colors.grey,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                           borderSide: const BorderSide(color: Colors.grey),
@@ -198,9 +213,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextFormField(
                       controller: _senhaController,
                       obscureText: _obscurePassword,
+                      style: const TextStyle(
+                        color: Colors.black87,
+                      ),
                       decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.white,
                         hintText: '********',
-                        hintStyle: const TextStyle(color: Colors.grey),
+                        hintStyle: const TextStyle(
+                          color: Colors.grey,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                           borderSide: const BorderSide(color: Colors.grey),
@@ -327,7 +349,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const SizedBox(height: 16),
                     TextButton(
                       onPressed: () {
-                        // Implementar recuperação de senha
+                        // IMPLEMENTAR RECUPERAÇÃO DE SENHA
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Funcionalidade em desenvolvimento'),

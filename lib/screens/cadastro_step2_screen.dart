@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../models/user.dart';
-import '../services/database_service.dart';
 import '../services/api_service.dart';
 
 class CadastroStep2Screen extends StatefulWidget {
@@ -17,8 +16,9 @@ class _CadastroStep2ScreenState extends State<CadastroStep2Screen> {
   bool _isLoading = false;
 
   final List<String> _quemEOptions = [
-    'Pessoa Autista',
-    'Responsável pelo Autista',
+    'Pessoa com TEA',
+    'Cuidador',
+    'Profissional',
   ];
 
   @override
@@ -46,8 +46,8 @@ class _CadastroStep2ScreenState extends State<CadastroStep2Screen> {
               : _preferenciasController.text.trim(),
         );
 
-        // Primeiro, tentar salvar na API Flask
         bool apiSuccess = false;
+        String? apiErrorMessage;
         try {
           final apiResult = await ApiService.register(
             nomeCompleto: user.nomeCompleto,
@@ -57,68 +57,40 @@ class _CadastroStep2ScreenState extends State<CadastroStep2Screen> {
             preferenciasSensoriais: user.preferenciasSensoriais,
           );
 
-          if (apiResult['success']) {
+          if (apiResult['success'] == true) {
             apiSuccess = true;
           } else {
-            // Se a API falhar, mostrar aviso mas continuar salvando localmente
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Aviso: Não foi possível salvar no servidor. ${apiResult['message'] ?? 'Conta salva apenas localmente.'}',
-                  ),
-                  backgroundColor: Colors.orange,
-                  duration: const Duration(seconds: 4),
-                ),
-              );
-            }
+            apiErrorMessage =
+                apiResult['message'] ?? 'Não foi possível criar a conta.';
           }
         } catch (apiError) {
-          // Se houver erro de conexão com a API, avisar mas continuar
+          apiErrorMessage =
+              'Não foi possível conectar ao servidor. Verifique se a API Flask está rodando.';
+        }
+
+        if (!apiSuccess) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(
-                  'Aviso: Não foi possível conectar ao servidor. Conta será salva apenas localmente.',
+                  apiErrorMessage ??
+                      'Não foi possível criar a conta. Tente novamente.',
                 ),
-                backgroundColor: Colors.orange,
-                duration: const Duration(seconds: 4),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 5),
               ),
             );
           }
-        }
-
-        // Salvar localmente também (SQLite)
-        try {
-          final dbService = DatabaseService.instance;
-          await dbService.insertUser(user);
-        } catch (dbError) {
-          // Se falhar ao salvar localmente, mas a API funcionou, ainda assim continuar
-          if (!apiSuccess) {
-            // Se ambos falharem, lançar erro
-            rethrow;
-          }
+          return;
         }
 
         if (mounted) {
-          if (apiSuccess) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Conta criada com sucesso no servidor!'),
-                backgroundColor: Colors.green,
-              ),
-            );
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Conta criada localmente. Você poderá fazer login quando houver conexão com o servidor.',
-                ),
-                backgroundColor: Colors.blue,
-                duration: Duration(seconds: 5),
-              ),
-            );
-          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Conta criada com sucesso no servidor!'),
+              backgroundColor: Colors.green,
+            ),
+          );
 
           Navigator.pushNamedAndRemoveUntil(
             context,
@@ -129,9 +101,8 @@ class _CadastroStep2ScreenState extends State<CadastroStep2Screen> {
       } catch (e) {
         if (mounted) {
           String errorMessage = 'Erro ao criar conta';
-          if (e.toString().contains('SQLite não é suportado na web')) {
-            errorMessage =
-                'SQLite não funciona na web. Por favor, execute o app em Windows, Android ou iOS para usar o cadastro local.';
+          if (e.toString().contains('Duplicate entry')) {
+            errorMessage = 'Este e-mail já está cadastrado!';
           } else if (e.toString().contains('UNIQUE constraint')) {
             errorMessage = 'Este e-mail já está cadastrado!';
           } else {
