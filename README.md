@@ -1,135 +1,63 @@
-# Clareza Diária - App Flutter
+# Clareza Diária - Aplicativo móvel desenvolvido em Flutter
 
-Aplicativo móvel desenvolvido em Flutter para o projeto Clareza Diária, com telas de cadastro e login.
 
-## Funcionalidades
+1. Copie o env.example, e mude a `DATABASE_URL` do seu MySQL:
+  - Nos campos (SEU USUARIO) e (SUA SENHA), coloque seu usuario e senha da conexão que tu irá criar no MYSQL.
+  - Entre nessa conexão e crie um schema com o nome: clareza_diaria
 
-- ✅ Tela de Login com integração com API Flask
-- ✅ Tela de Cadastro em 2 passos
-- ✅ Banco de dados MySQL para armazenamento
-- ✅ Interface moderna e responsiva
 
-## Estrutura do Projeto
 
-```
-lib/
-├── main.dart                 # Arquivo principal com rotas
-├── models/
-│   └── user.dart            # Modelo de dados do usuário
-├── services/
-│   └── api_service.dart     # Serviço de comunicação com API Flask
-└── screens/
-    ├── login_screen.dart           # Tela de login
-    ├── cadastro_step1_screen.dart  # Tela de cadastro - Passo 1
-    └── cadastro_step2_screen.dart  # Tela de cadastro - Passo 2
-```
+2. Separe dois terminais, no primeiro execute esses comandos:
+  - cd backend
+  - .\.venv\Scripts\Activate.ps1
+  - pip install -r requirements.txt
 
-## Configuração da API
+  * Inicialize o banco:
+  - flask --app app db init      # primeiro uso
+  - flask --app app db migrate   # gerar migrações
+  - flask --app app db upgrade   # aplicar schema
+  - flask --app app run --debug  # executa a api
 
-Para conectar o app com sua API, edite o arquivo `lib/services/api_service.dart` e ajuste a URL:
 
-```dart
-static const String baseUrl = 'http://127.0.0.1:5000';
-```
 
-Em produção, substitua pela URL pública (por exemplo, `https://seuusuario.pythonanywhere.com`).
+3. No segundo terminal, execute esses comandos:
 
-> **Novo backend Flask completo**: agora o repositório traz uma API com MySQL e JWT em `backend/`. Veja as instruções detalhadas em `backend/README.md`. Os endpoints implementados cobrem autenticação, rotinas, diário, CAA, relatórios e compartilhamento.
+  Certifique-se de ter o Flutter instalado:
 
-### Endpoint Esperado
-
-A API deve ter um endpoint `/api/login` que aceita POST requests com o seguinte formato:
-
-**Request:**
-```json
-{
-  "email": "usuario@email.com",
-  "senha": "senha123"
-}
-```
-
-**Response de Sucesso (200):**
-```json
-{
-  "success": true,
-  "message": "Login realizado com sucesso",
-  "data": {
-    // dados do usuário
-  }
-}
-```
-
-**Response de Erro (400/401):**
-```json
-{
-  "success": false,
-  "message": "Email ou senha inválidos"
-}
-```
-
-## Backend Flask + MySQL
-
-O aplicativo Flutter não acessa mais o banco diretamente. Toda a persistência é feita pela API Flask disponível em `backend/`.  
-Passos rápidos:
-
-1. Configure o arquivo `backend/.env` (copie `env.example`) com a `DATABASE_URL` do seu MySQL.
-2. Dentro de `backend/`, ative a virtualenv e rode `python -m flask --app app db upgrade` para aplicar o schema.
-3. Suba a API com `python -m flask --app app run --debug`.
-4. Atualize `lib/services/api_service.dart` (já configurado para `http://127.0.0.1:5000`) se mudar o host/porta.
-
-Todas as instruções detalhadas estão em `backend/README.md`.
-
-## Como Executar
-
-1. Certifique-se de ter o Flutter instalado:
-   ```bash
    flutter --version
-   ```
 
-2. Instale as dependências:
-   ```bash
+  Instale as dependências:
+
    flutter pub get
-   ```
 
-3. Execute o aplicativo:
-   ```bash
-   flutter run
-   ```
+   Execute o aplicativo:
 
-## Dependências
+   flutter run -d web-server
 
-- `http: ^1.1.0` - Requisições HTTP
+4. No segundo terminal, irá aparecer uma mensagem assim como do exemplo: "http://localhost:58557/"
+5. Copie o que aparecer, e cole no seu navegador para rodar o programa.
 
-## Telas
 
-### 1. Tela de Login
-- Campos: E-mail e Senha
-- Checkbox "Lembrar-me"
-- Botão "Entrar" que comunica com a API Flask
-- Link para cadastro e recuperação de senha
 
-### 2. Tela de Cadastro - Passo 1
-- Campos: Nome Completo, E-mail, Senha
-- Botão "Próximo" para avançar ao passo 2
-- Link "Voltar para login"
 
-### 3. Tela de Cadastro - Passo 2
-- Campo dropdown "Quem é você?"
-- Campo de texto multiline "Preferências sensoriais (opcional)"
-- Botão "Criar Conta" que envia os dados para a API Flask/MySQL
-- Link "Voltar para login"
+# Resumo: Funcionamento Offline
 
-## Observações
+1. Armazenamento local:
+  Quando o usuário cria um registro (diário, rotina, etc.), salvo primeiro no dispositivo usando Hive (banco de dados local).
 
-- As senhas ainda são enviadas e gravadas em texto plano (não recomendado para produção)
-- Para produção, considere implementar hash de senhas (bcrypt, argon2, etc.)
-- A API Flask cuida de todo o acesso ao banco MySQL; o app consome apenas os endpoints HTTP
+2. Tentativa de sincronização:
+  Tento enviar para o servidor.
+  Se estiver online: envia e marca como sincronizado.
+  Se estiver offline: mantém salvo localmente e marca como pendente.
 
-## 
+3. Sincronização automática
+  Quando a internet volta, o app detecta e envia automaticamente os registros pendentes para o servidor.
 
-- cd backend
-- .\.venv\Scripts\Activate.ps1
-- pip install -r requirements.txt
-- flask --app app run --debug
+4. Exibição dos dados
+  As telas mostram primeiro os dados salvos localmente.
+  Depois, atualiza com os dados do servidor quando possível.
 
-flutter run -d web-server
+Tecnologias usadas:
+  Hive: banco de dados local no dispositivo
+  connectivity_plus: detecta se há internet
+  Fila de sincronização: guarda o que precisa ser enviado
