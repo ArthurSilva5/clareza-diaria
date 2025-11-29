@@ -75,8 +75,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
     } else if (widget.isProfissional) {
       _loadShares();
     } else {
-      _loadCareLinks();
-      _load();
+      // PARA CUIDADOR, AGUARDAR CARREGAR VÍNCULOS ANTES DE CARREGAR RELATÓRIOS
+      _loadCareLinks().then((_) => _load());
     }
   }
 
@@ -346,10 +346,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ? now.subtract(const Duration(days: 30))
         : now.subtract(const Duration(days: 6));
 
+    // OBTER ID DO USUÁRIO ATUAL
+    final currentUserId = _currentUser?['id'] as int?;
+    if (currentUserId == null) {
+      setState(() {
+        _loading = false;
+        _error = 'Usuário não identificado.';
+      });
+      return;
+    }
+
     // 1. BUSCAR ENTRIES LOCAIS PRIMEIRO (RÁPIDO)
+    // FILTRAR APENAS ENTRIES DO USUÁRIO ATUAL PARA EVITAR MISTURAR DADOS DE OUTRAS CONTAS
     final localEntries = LocalStorageService.getLocalEntries();
     final localEntriesMap = localEntries
-        .where((e) => e.timestamp.isAfter(from) && e.timestamp.isBefore(now.add(const Duration(days: 1))))
+        .where((e) => 
+            e.userId == currentUserId && // APENAS ENTRIES DO USUÁRIO ATUAL
+            e.timestamp.isAfter(from) && 
+            e.timestamp.isBefore(now.add(const Duration(days: 1))))
         .map((e) => {
               'id': e.id,
               'tipo': e.tipo,
@@ -623,30 +637,67 @@ class _ReportsScreenState extends State<ReportsScreen> {
       }
     } else {
       // USUÁRIO NORMAL OU CUIDADOR VENDO PRÓPRIO RELATÓRIO
-      final result = await ApiService.listEntries(
-        tipo: 'diario',
-        from: from,
-        to: now,
-      );
-
-      if (!mounted) return;
-
-      if (result['success'] == true && result['data'] is List) {
-        final apiEntries = List<Map<String, dynamic>>.from(
-          (result['data'] as List).whereType<Map<String, dynamic>>(),
+      // SE FOR CUIDADOR SEM VÍNCULOS, SÓ MOSTRAR SEUS PRÓPRIOS ENTRIES
+      if (_isCuidador && _careLinks.isEmpty && _selectedPessoaTeaId == null) {
+        // CUIDADOR SEM VÍNCULOS: APENAS SEUS PRÓPRIOS ENTRIES
+        final result = await ApiService.listEntries(
+          tipo: 'diario',
+          from: from,
+          to: now,
         );
-        final merged = _mergeEntries(localEntriesMap, apiEntries);
-        setState(() {
-          _entries = merged;
-          _loading = false;
-        });
+
+        if (!mounted) return;
+
+        if (result['success'] == true && result['data'] is List) {
+          final apiEntries = List<Map<String, dynamic>>.from(
+            (result['data'] as List).whereType<Map<String, dynamic>>(),
+          );
+          // FILTRAR APENAS ENTRIES DO USUÁRIO ATUAL (GARANTIR SEGURANÇA)
+          final filteredApiEntries = apiEntries.where((entry) {
+            final entryUserId = entry['user_id'] as int?;
+            return entryUserId == currentUserId;
+          }).toList();
+          
+          final merged = _mergeEntries(localEntriesMap, filteredApiEntries);
+          setState(() {
+            _entries = merged;
+            _loading = false;
+          });
+        } else {
+          setState(() {
+            _loading = false;
+            _error =
+                result['message']?.toString() ??
+                'Não foi possível carregar os registros.';
+          });
+        }
       } else {
-        setState(() {
-          _loading = false;
-          _error =
-              result['message']?.toString() ??
-              'Não foi possível carregar os registros.';
-        });
+        // PESSOA COM TEA OU CUIDADOR COM VÍNCULO: COMPORTAMENTO NORMAL
+        final result = await ApiService.listEntries(
+          tipo: 'diario',
+          from: from,
+          to: now,
+        );
+
+        if (!mounted) return;
+
+        if (result['success'] == true && result['data'] is List) {
+          final apiEntries = List<Map<String, dynamic>>.from(
+            (result['data'] as List).whereType<Map<String, dynamic>>(),
+          );
+          final merged = _mergeEntries(localEntriesMap, apiEntries);
+          setState(() {
+            _entries = merged;
+            _loading = false;
+          });
+        } else {
+          setState(() {
+            _loading = false;
+            _error =
+                result['message']?.toString() ??
+                'Não foi possível carregar os registros.';
+          });
+        }
       }
     }
   }

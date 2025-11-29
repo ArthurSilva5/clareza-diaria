@@ -153,16 +153,11 @@ class _DiaryScreenState extends State<DiaryScreen> {
     });
 
     if (result['success'] == true) {
-      final isOffline = result['offline'] == true;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isOffline
-                ? 'Diário salvo localmente. Será sincronizado quando houver conexão.'
-                : 'Diário registrado com sucesso!',
-          ),
-          backgroundColor: isOffline ? Colors.orange : Colors.green,
-          duration: Duration(seconds: isOffline ? 4 : 2),
+        const SnackBar(
+          content: Text('Diário registrado com sucesso!'),
+          backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
         ),
       );
       setState(() {
