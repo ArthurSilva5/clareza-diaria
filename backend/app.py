@@ -47,10 +47,19 @@ def _enable_cors(app: Flask) -> None:
   CORS(
     app,
     resources={r"/api/*": {"origins": "*"}},
-    supports_credentials=False,
+    supports_credentials=True,
     allow_headers=["Content-Type", "Authorization"],
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    expose_headers=["Content-Type", "Authorization"],
   )
+  
+  # ADICIONAR HEADERS CORS MANUALMENTE PARA GARANTIR QUE FUNCIONEM EM ERROS
+  @app.after_request
+  def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 
 def _register_healthcheck(app: Flask) -> None:

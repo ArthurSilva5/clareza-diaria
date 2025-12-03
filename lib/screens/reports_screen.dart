@@ -138,6 +138,25 @@ class _ReportsScreenState extends State<ReportsScreen> {
       _load();
     }
   }
+  
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // RECARREGAR RELATÓRIOS QUANDO O PACIENTE SELECIONADO MUDAR (PARA PROFISSIONAIS)
+    if (widget.isProfissional && !_isAdministrador && _shares.isNotEmpty) {
+      _checkAndReloadReports();
+    }
+  }
+  
+  Future<void> _checkAndReloadReports() async {
+    final prefs = await SharedPreferences.getInstance();
+    final selectedPatientId = prefs.getInt('selected_patient_id');
+    
+    // SE O PACIENTE SELECIONADO MUDOU, RECARREGAR RELATÓRIOS
+    if (_selectedPatientId != selectedPatientId) {
+      await _load();
+    }
+  }
 
   bool get _isCuidador {
     final perfil = _currentUser?['perfil'] as String?;
@@ -184,114 +203,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
-  void _showInviteProfessionalDialog(BuildContext context) {
-    final emailController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    bool isLoading = false;
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Convidar Profissional'),
-          content: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Digite o email cadastrado do profissional que você deseja convidar:',
-                    style: TextStyle(fontSize: 14),
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
-                      labelText: 'Email',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.email_outlined),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Por favor, insira o email';
-                      }
-                      if (!value.contains('@')) {
-                        return 'Por favor, insira um email válido';
-                      }
-                      return null;
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: isLoading
-                  ? null
-                  : () {
-                      Navigator.of(dialogContext).pop();
-                    },
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              onPressed: isLoading
-                  ? null
-                  : () async {
-                      final formState = formKey.currentState;
-                      if (formState != null && formState.validate()) {
-                        setDialogState(() {
-                          isLoading = true;
-                        });
-
-                        final result = await ApiService.createShare(
-                          viewerEmail: emailController.text.trim(),
-                        );
-
-                        if (context.mounted) {
-                          if (result['success'] == true) {
-                            final emailDigitado = emailController.text.trim();
-                            Navigator.of(dialogContext).pop();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Profissional convidado com sucesso! O profissional com o email $emailDigitado terá acesso aos seus relatórios e rotinas.',
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          } else {
-                            setDialogState(() {
-                              isLoading = false;
-                            });
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  result['message'] ??
-                                      'Erro ao convidar profissional',
-                                ),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                          }
-                        }
-                      }
-                    },
-              child: isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Convidar'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   /// MESCLAR ENTRIES LOCAIS COM ENTRIES DA API, EVITANDO DUPLICATAS
   List<Map<String, dynamic>> _mergeEntries(
@@ -843,29 +754,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
                 children: [
-                  // BOTÃO CONVIDAR PROFISSIONAL (PARA CUIDADOR E PESSOA COM TEA)
-                  if ((_isCuidador || _isPessoaTea) &&
-                      !widget.isProfissional) ...[
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 16),
-                      child: ElevatedButton.icon(
-                        onPressed: () => _showInviteProfessionalDialog(context),
-                        icon: const Icon(Icons.person_add_outlined),
-                        label: const Text('Convidar Profissional'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF4CAF50),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
                   // SELETOR DE RELATÓRIO PARA PROFISSIONAL QUANDO HÁ CUIDADOR VINCULADO
                   if (widget.isProfissional &&
                       _selectedPatientId != null &&

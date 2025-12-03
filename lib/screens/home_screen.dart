@@ -4,6 +4,7 @@ import 'diary_screen.dart';
 import 'routine_list_screen.dart';
 import 'reports_screen.dart';
 import 'calm_modal.dart';
+import '../services/api_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -52,6 +53,11 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } else if (!_hasInitialized) {
       _hasInitialized = true;
+    }
+    
+    // SE FORÇAR RECARREGAMENTO, RESETAR A FLAG DE INICIALIZAÇÃO
+    if (args != null && args['forceReload'] == true) {
+      _hasInitialized = false;
     }
   }
 
@@ -342,6 +348,115 @@ class _HomeTab extends StatelessWidget {
   final Map<String, dynamic>? userArgs;
   final ValueChanged<int> onSelectTab;
 
+  void _showRequestAccessDialog(BuildContext context, Map<String, dynamic>? userArgs) {
+    final emailController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    bool isLoading = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Solicitar Acesso'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Digite o email do cuidador ou pessoa com TEA para solicitar acesso aos relatórios e rotinas:',
+                    style: TextStyle(fontSize: 14),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.email_outlined),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Por favor, insira o email';
+                      }
+                      if (!value.contains('@')) {
+                        return 'Por favor, insira um email válido';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: isLoading
+                  ? null
+                  : () {
+                      Navigator.of(dialogContext).pop();
+                    },
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: isLoading
+                  ? null
+                  : () async {
+                      final formState = formKey.currentState;
+                      if (formState != null && formState.validate()) {
+                        setDialogState(() {
+                          isLoading = true;
+                        });
+
+                        final result = await ApiService.requestShareAccess(
+                          ownerEmail: emailController.text.trim(),
+                        );
+
+                        if (context.mounted) {
+                          if (result['success'] == true) {
+                            final emailDigitado = emailController.text.trim();
+                            Navigator.of(dialogContext).pop();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Solicitação enviada com sucesso! Uma notificação foi enviada para $emailDigitado.',
+                                ),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          } else {
+                            setDialogState(() {
+                              isLoading = false;
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  result['message'] ??
+                                      'Erro ao solicitar acesso',
+                                ),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        }
+                      }
+                    },
+              child: isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Solicitar'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -390,6 +505,23 @@ class _HomeTab extends StatelessWidget {
               },
             ),
             const SizedBox(height: 12),
+            // ATALHO PARA PROFISSIONAL SOLICITAR ACESSO
+            if (isProfissional)
+              _QuickAccessCard(
+                title: 'Solicitar Acesso',
+                subtitle: 'Acesse relatórios e rotinas',
+                icon: Icons.person_add_outlined,
+                backgroundColor: Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF2A2A2A)
+                    : const Color(0xFFE8F5E9),
+                iconColor: Theme.of(context).brightness == Brightness.dark
+                    ? const Color(0xFF4CAF50)
+                    : const Color(0xFF4CAF50),
+                onTap: () {
+                  _showRequestAccessDialog(context, userArgs);
+                },
+              ),
+            if (isProfissional) const SizedBox(height: 12),
             // PARA PROFISSIONAL E ADMINISTRADOR, MOSTRAR ROTINA; PARA OUTROS, MOSTRAR VOZ
             if (isProfissional)
               _QuickAccessCard(

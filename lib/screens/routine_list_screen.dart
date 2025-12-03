@@ -42,6 +42,25 @@ class _RoutineListScreenState extends State<RoutineListScreen> {
       _loadRoutines();
     }
   }
+  
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // RECARREGAR ROTINAS QUANDO O PACIENTE SELECIONADO MUDAR (PARA PROFISSIONAIS)
+    if (widget.isProfissional && !_isAdministrador && _shares.isNotEmpty) {
+      _checkAndReloadRoutines();
+    }
+  }
+  
+  Future<void> _checkAndReloadRoutines() async {
+    final prefs = await SharedPreferences.getInstance();
+    final selectedPatientId = prefs.getInt('selected_patient_id');
+    
+    // SE O PACIENTE SELECIONADO MUDOU, RECARREGAR ROTINAS
+    if (_selectedPatientId != selectedPatientId) {
+      await _loadRoutines();
+    }
+  }
 
   Future<void> _loadShares() async {
     setState(() {
@@ -104,8 +123,6 @@ class _RoutineListScreenState extends State<RoutineListScreen> {
           .toList();
       
       // ADMINISTRADOR VÊ TODAS AS ROTINAS SEM FILTRO
-      // SE FOR PROFISSIONAL (MAS NÃO ADMINISTRADOR), FILTRAR PELO PACIENTE SELECIONADO
-      // O BACKEND JÁ RETORNA AS ROTINAS DO CUIDADOR VINCULADO QUANDO O PROFISSIONAL ESTÁ VINCULADO A UMA PESSOA COM TEA
       if (widget.isProfissional && !_isAdministrador) {
         final prefs = await SharedPreferences.getInstance();
         final selectedPatientId = prefs.getInt('selected_patient_id');
@@ -113,10 +130,60 @@ class _RoutineListScreenState extends State<RoutineListScreen> {
         
         // SE NÃO HOUVER PACIENTE SELECIONADO, NÃO MOSTRAR NENHUMA ROTINA
         if (selectedPatientId == null) {
-          allRoutines = [];
+          setState(() {
+            _routines = [];
+            _loading = false;
+          });
+          return;
         }
-        // O BACKEND JÁ RETORNA AS ROTINAS DO PACIENTE SELECIONADO E DO CUIDADOR VINCULADO (SE HOUVER)
-        // NÃO PRECISAMOS FILTRAR ADICIONALMENTE PORQUE O BACKEND JÁ FAZ ESSA LÓGICA
+        
+        // IDENTIFICAR O CUIDADOR VINCULADO (SE HOUVER)
+        // BUSCAR INFORMAÇÕES DO PACIENTE SELECIONADO NOS SHARES
+        String? selectedPatientPerfil;
+        for (final share in _shares) {
+          final ownerId = share['owner_id'] as int?;
+          if (ownerId != null && ownerId == selectedPatientId) {
+            selectedPatientPerfil = share['owner_perfil'] as String?;
+            break;
+          }
+        }
+        
+        // IDENTIFICAR O CUIDADOR VINCULADO À PESSOA COM TEA SELECIONADA
+        int? cuidadorId;
+        if (selectedPatientPerfil != null &&
+            selectedPatientPerfil.toLowerCase().contains('tea')) {
+          // PROCURAR POR UM CUIDADOR NOS SHARES QUE NÃO SEJA O SELECTEDPATIENTID
+          for (final share in _shares) {
+            final ownerId = share['owner_id'] as int?;
+            final ownerPerfil = share['owner_perfil'] as String?;
+            if (ownerId != null &&
+                ownerId != selectedPatientId &&
+                ownerPerfil != null &&
+                ownerPerfil.toLowerCase().contains('cuidador')) {
+              // VERIFICAR SE ESTE CUIDADOR TEM ROTINAS QUE APARECEM NA LISTA
+              // (INDICA QUE ELE ESTÁ VINCULADO À PESSOA COM TEA)
+              final hasRoutines = allRoutines.any((r) => r.userId == ownerId);
+              if (hasRoutines) {
+                cuidadorId = ownerId;
+                break;
+              }
+            }
+          }
+        }
+        
+        // FILTRAR ROTINAS: MOSTRAR APENAS AS DO PACIENTE SELECIONADO E DO CUIDADOR VINCULADO (SE HOUVER)
+        allRoutines = allRoutines.where((routine) {
+          final routineUserId = routine.userId;
+          // INCLUIR ROTINAS DO PACIENTE SELECIONADO
+          if (routineUserId == selectedPatientId) {
+            return true;
+          }
+          // INCLUIR ROTINAS DO CUIDADOR VINCULADO (SE HOUVER)
+          if (cuidadorId != null && routineUserId == cuidadorId) {
+            return true;
+          }
+          return false;
+        }).toList();
       }
       
       setState(() {
@@ -439,6 +506,59 @@ class _RoutineEmptyView extends StatelessWidget {
   }
 }
 
+class _RoutineNoPatientSelectedView extends StatelessWidget {
+  const _RoutineNoPatientSelectedView();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.person_outline,
+              size: 64,
+              color: Theme.of(context).textTheme.bodyMedium?.color ??
+                  (Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFFB0B4C1)
+                      : const Color(0xFF9CA3AF)),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Nenhum paciente selecionado',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).textTheme.titleLarge?.color ??
+                     (Theme.of(context).brightness == Brightness.dark
+                      ? Colors.white
+                      : const Color(0xFF1E1E1E)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 40),
+              child: Text(
+                'Selecione um paciente na tela de perfil para visualizar as rotinas.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Theme.of(context).textTheme.bodyMedium?.color ??
+                       (Theme.of(context).brightness == Brightness.dark
+                        ? const Color(0xFFB0B4C1)
+                        : const Color(0xFF6B7280)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _RoutineNoLinkView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -522,59 +642,6 @@ class _RoutineErrorView extends StatelessWidget {
           label: const Text('Tentar novamente'),
         ),
       ],
-    );
-  }
-}
-
-class _RoutineNoPatientSelectedView extends StatelessWidget {
-  const _RoutineNoPatientSelectedView();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.person_outline,
-              size: 64,
-              color: Theme.of(context).textTheme.bodyMedium?.color ??
-                  (Theme.of(context).brightness == Brightness.dark
-                      ? const Color(0xFFB0B4C1)
-                      : const Color(0xFF9CA3AF)),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Nenhum paciente selecionado',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: Theme.of(context).textTheme.titleLarge?.color ??
-                     (Theme.of(context).brightness == Brightness.dark
-                      ? Colors.white
-                      : const Color(0xFF1E1E1E)),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 40),
-              child: Text(
-                'Selecione um paciente na tela de perfil para visualizar as rotinas.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Theme.of(context).textTheme.bodyMedium?.color ??
-                       (Theme.of(context).brightness == Brightness.dark
-                        ? const Color(0xFFB0B4C1)
-                        : const Color(0xFF6B7280)),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

@@ -291,6 +291,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       return CheckboxListTile(
                         title: Text(patientName),
                         value: isSelected,
+                        tileColor: Colors.white,
+                        selectedTileColor: Colors.white,
+                        activeColor: Theme.of(context).colorScheme.primary,
                         onChanged: (bool? value) {
                           setDialogState(() {
                             // SE DESMARCAR, LIMPAR SELEÇÃO
@@ -323,16 +326,33 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 
                 if (mounted) {
                   Navigator.of(dialogContext).pop();
+                  
+                  // BUSCAR NOME DO PACIENTE SELECIONADO PARA A NOTIFICAÇÃO
+                  String? pacienteNome = 'Paciente';
+                  if (tempSelectedId != null) {
+                    for (final patient in patients) {
+                      final patientId = patient['owner_id'] as int?;
+                      if (patientId == tempSelectedId) {
+                        pacienteNome = patient['owner_nome'] as String? ?? 'Paciente';
+                        break;
+                      }
+                    }
+                  }
+                  
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
                         tempSelectedId != null
-                            ? 'Paciente selecionado com sucesso!'
-                            : 'Seleção removida. Visualizando todos os pacientes.',
+                            ? '$pacienteNome foi selecionado(a) com sucesso!'
+                            : 'Nenhum paciente selecionado.',
                       ),
                       backgroundColor: Colors.green,
+                      duration: const Duration(seconds: 2),
                     ),
                   );
+                  
+                  // NÃO NAVEGAR - APENAS FECHAR A MODAL E PERMANECER NA TELA DE PERFIL
+                  // AS ROTINAS E RELATÓRIOS SERÃO RECARREGADAS AUTOMATICAMENTE QUANDO ACESSADAS
                 }
               },
               child: const Text('Salvar'),

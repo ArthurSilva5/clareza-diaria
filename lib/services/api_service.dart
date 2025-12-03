@@ -1045,6 +1045,42 @@ class ApiService {
 
   // ========== COMPARTILHAMENTO (SHARES) ==========
 
+  static Future<Map<String, dynamic>> requestShareAccess({required String ownerEmail}) async {
+    if (_accessToken == null) {
+      return {
+        'success': false,
+        'message': 'Usuário não autenticado. Faça login novamente.',
+      };
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/shares/request'),
+        headers: _authHeaders(),
+        body: json.encode({
+          'owner_email': ownerEmail.trim().toLowerCase(),
+        }),
+      );
+
+      if (response.statusCode == 201) {
+        final data = json.decode(response.body);
+        return {'success': true, 'data': data};
+      }
+
+      final errorData = json.decode(response.body);
+      return {
+        'success': false,
+        'message': errorData['message'] ?? 'Não foi possível solicitar acesso.',
+        'detail': response.body,
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Erro de conexão ao solicitar acesso: ${e.toString()}',
+      };
+    }
+  }
+
   static Future<Map<String, dynamic>> createShare({required String viewerEmail, String escopo = 'read'}) async {
     if (_accessToken == null) {
       return {
@@ -1078,6 +1114,45 @@ class ApiService {
       return {
         'success': false,
         'message': 'Erro de conexão ao criar compartilhamento: ${e.toString()}',
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> respondShare({
+    required int shareId,
+    required bool accept,
+  }) async {
+    if (_accessToken == null) {
+      return {
+        'success': false,
+        'message': 'Usuário não autenticado. Faça login novamente.',
+      };
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/shares/$shareId/respond'),
+        headers: _authHeaders(),
+        body: json.encode({
+          'accept': accept,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return {'success': true, 'data': data};
+      }
+
+      final errorData = json.decode(response.body);
+      return {
+        'success': false,
+        'message': errorData['message'] ?? 'Não foi possível responder a solicitação.',
+        'detail': response.body,
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Erro de conexão ao responder solicitação: ${e.toString()}',
       };
     }
   }

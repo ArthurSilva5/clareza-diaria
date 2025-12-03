@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 from datetime import datetime, timedelta
 from uuid import uuid4
@@ -12,6 +13,7 @@ from flask_jwt_extended import (
   jwt_required,
 )
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import inspect as sqlalchemy_inspect
 
 from ..extensions import db
 from ..models import (
@@ -287,6 +289,24 @@ def list_routines():
   if _is_profissional_or_admin(user):
     shares = Share.query.filter_by(viewer_id=user.id).all()
     for share in shares:
+      # VERIFICAR SE HÁ NOTIFICAÇÃO PENDENTE PARA ESTE SHARE
+      # SE HOUVER, NÃO INCLUIR ROTINAS (AINDA NÃO FOI ACEITO)
+      try:
+        inspector = sqlalchemy_inspect(Notification)
+        has_share_id = 'share_id' in [col.name for col in inspector.columns]
+        
+        if has_share_id:
+          pending_notification = Notification.query.filter_by(
+            share_id=share.id,
+            tipo="share_request",
+            lida=False
+          ).first()
+          
+          if pending_notification:
+            continue  # PULAR SHARES PENDENTES
+      except Exception:
+        pass
+      
       owner = User.query.get(share.owner_id)
       if owner:
         # INCLUIR ROTINAS DO OWNER
@@ -1003,6 +1023,17 @@ def list_shares():
     shares = Share.query.filter_by(viewer_id=user.id).all()
     result = []
     for share in shares:
+      # VERIFICAR SE HÁ NOTIFICAÇÃO PENDENTE PARA ESTE SHARE
+      # SE HOUVER, NÃO RETORNAR (AINDA NÃO FOI ACEITO)
+      pending_notification = Notification.query.filter_by(
+        share_id=share.id,
+        tipo="share_request",
+        lida=False
+      ).first()
+      
+      if pending_notification:
+        continue  # PULAR SHARES PENDENTES
+      
       owner = User.query.get(share.owner_id)
       result.append({
         "id": share.id,
@@ -1033,6 +1064,295 @@ def list_shares():
   cache.set(cache_key, result, ttl=300)
   
   return jsonify(result), 200
+
+
+@api_bp.route("/shares/request", methods=["POST"])
+@jwt_required()
+def request_share():
+  """Profissional solicita acesso aos relatórios e rotinas de um cuidador ou pessoa com TEA"""
+  try:
+    viewer = _current_user()  # O profissional que está solicitando
+    data = _get_json()
+    
+    owner_email = data.get("owner_email", "").strip().lower()
+    
+    if not owner_email:
+      return jsonify({"message": "owner_email é obrigatório."}), 400
+    
+    # VERIFICAR SE O USUÁRIO É UM PROFISSIONAL OU ADMINISTRADOR
+    if not viewer.perfil or (not _is_profissional_or_admin(viewer)):
+      return jsonify({"message": "Apenas profissionais podem solicitar acesso."}), 403
+    
+    # BUSCAR O OWNER PELO EMAIL
+    owner = User.query.filter_by(email=owner_email).first()
+    if not owner:
+      return jsonify({"message": "Email não encontrado."}), 404
+    
+    # VERIFICAR SE O OWNER É CUIDADOR OU PESSOA COM TEA
+    owner_perfil = owner.perfil.lower() if owner.perfil else ""
+    if "cuidador" not in owner_perfil and "tea" not in owner_perfil:
+      return jsonify({"message": "O email informado não pertence a um cuidador ou pessoa com TEA."}), 400
+    
+    # VERIFICAR SE JÁ EXISTE UM SHARE ATIVO (JÁ ACEITO)
+    existing_share = Share.query.filter_by(
+      owner_id=owner.id,
+      viewer_id=viewer.id
+    ).first()
+    
+    if existing_share:
+      # SHARE JÁ EXISTE, SIGNIFICA QUE JÁ FOI ACEITO
+      return jsonify({"message": "Você já tem acesso aos relatórios e rotinas desta conta."}), 400
+    
+    # VERIFICAR SE JÁ EXISTE UMA NOTIFICAÇÃO PENDENTE
+    existing_notification = Notification.query.filter_by(
+      user_id=owner.id,
+      tipo="share_request",
+      lida=False
+    ).all()
+    
+    # VERIFICAR SE ALGUMA NOTIFICAÇÃO PENDENTE É PARA ESTE PROFISSIONAL
+    for notif in existing_notification:
+      mensagem = notif.mensagem or ""
+      viewer_match = re.search(r'\|\|\|VIEWER_ID:(\d+)', mensagem)
+      if viewer_match and int(viewer_match.group(1)) == viewer.id:
+        return jsonify({"message": "Já existe uma solicitação pendente para este acesso."}), 400
+      # TAMBÉM VERIFICAR POR EMAIL
+      if viewer.email in mensagem:
+        return jsonify({"message": "Já existe uma solicitação pendente para este acesso."}), 400
+    
+    # NÃO CRIAR O SHARE AINDA - SÓ CRIAR QUANDO FOR ACEITO
+    # CRIAR APENAS A NOTIFICAÇÃO PARA O OWNER
+    # ARMAZENAR viewer_id E owner_id EM UM CAMPO SEPARADO (data JSON) OU NA MENSAGEM MAS OCULTO
+    # VAMOS USAR UM FORMATO QUE PODE SER EXTRAÍDO MAS NÃO É VISÍVEL NA UI
+    mensagem_visivel = f"{viewer.nome_completo} ({viewer.email}) deseja acessar seus relatórios e rotinas."
+    # ARMAZENAR IDs NO FINAL DA MENSAGEM COM UM SEPARADOR ESPECIAL QUE SERÁ REMOVIDO NA UI
+    mensagem_completa = f"{mensagem_visivel}|||VIEWER_ID:{viewer.id}|||OWNER_ID:{owner.id}"
+    
+    notification_data = {
+      "user_id": owner.id,
+      "tipo": "share_request",
+      "titulo": "Solicitação de acesso",
+      "mensagem": mensagem_completa,
+    }
+    
+    notification = Notification(**notification_data)
+    
+    db.session.add(notification)
+    db.session.commit()
+    
+    # ARMAZENAR INFORMAÇÕES DO SHARE PENDENTE EM UM DICIONÁRIO TEMPORÁRIO
+    # OU MELHOR: CRIAR UMA TABELA DE SHARES PENDENTES OU USAR A MENSAGEM
+    # POR ENQUANTO, VAMOS ARMAZENAR viewer_id E owner_id NA MENSAGEM DE FORMA ESTRUTURADA
+    
+    # INVALIDAR CACHE
+    cache.invalidate_pattern(f"notifications:user:{owner.id}")
+    
+    return jsonify({
+      "message": "Solicitação enviada com sucesso. Aguarde a aprovação do cuidador ou pessoa com TEA.",
+      "notification_id": notification.id,
+      "viewer_id": viewer.id,
+      "owner_id": owner.id
+    }), 201
+  except Exception as e:
+    db.session.rollback()
+    import traceback
+    error_trace = traceback.format_exc()
+    print(f"ERRO em request_share: {error_trace}")
+    return jsonify({
+      "message": f"Erro ao processar solicitação: {str(e)}",
+      "error": str(e)
+    }), 500
+
+
+@api_bp.route("/shares/<int:share_id>/respond", methods=["POST"])
+@jwt_required()
+def respond_share(share_id: int):
+  """Cuidador ou pessoa com TEA aceita ou rejeita solicitação de acesso do profissional"""
+  try:
+    user = _current_user()
+    data = _get_json()
+    accept = data.get("accept", False)
+    
+    # share_id AGORA É O ID DA NOTIFICAÇÃO, NÃO DO SHARE
+    # O SHARE SÓ SERÁ CRIADO SE FOR ACEITO
+    # BUSCAR A NOTIFICAÇÃO PELO ID (QUE FOI PASSADO COMO share_id)
+    notification = Notification.query.get(share_id)
+    
+    if not notification:
+      return jsonify({"message": "Notificação não encontrada."}), 404
+    
+    # VERIFICAR SE O USUÁRIO É O DONO DA NOTIFICAÇÃO
+    if notification.user_id != user.id:
+      return jsonify({"message": "Você não tem permissão para responder esta solicitação."}), 403
+    
+    # VERIFICAR SE É DO TIPO CORRETO
+    if notification.tipo != "share_request":
+      return jsonify({"message": "Esta notificação não é uma solicitação de acesso."}), 400
+    
+    # VERIFICAR SE JÁ FOI RESPONDIDA (VERIFICANDO SE EXISTE SHARE)
+    # EXTRAIR viewer_id DA MENSAGEM PARA VERIFICAR SE JÁ EXISTE SHARE
+    mensagem = notification.mensagem or ""
+    viewer_match = re.search(r'\|\|\|VIEWER_ID:(\d+)', mensagem)
+    viewer_id_from_notif = None
+    
+    if viewer_match:
+      viewer_id_from_notif = int(viewer_match.group(1))
+      # VERIFICAR SE JÁ EXISTE UM SHARE (FOI ACEITA)
+      existing_share = Share.query.filter_by(
+        owner_id=user.id,
+        viewer_id=viewer_id_from_notif
+      ).first()
+      if existing_share:
+        # SE EXISTE SHARE, SIGNIFICA QUE JÁ FOI ACEITA
+        # MARCAR NOTIFICAÇÃO COMO LIDA SE AINDA NÃO ESTIVER
+        if not notification.lida:
+          notification.lida = True
+          db.session.commit()
+        return jsonify({"message": "Esta solicitação já foi aceita anteriormente."}), 400
+    
+    
+    if accept:
+      # ACEITAR: CRIAR O SHARE AGORA (NÃO EXISTIA ANTES)
+      # USAR O viewer_id JÁ EXTRAÍDO ANTERIORMENTE
+      viewer_id = viewer_id_from_notif
+      owner_id = user.id
+      
+      # SE NÃO CONSEGUIMOS EXTRAIR ANTES, TENTAR NOVAMENTE
+      if not viewer_id:
+        # FORMATO: "[VIEWER_ID:123][OWNER_ID:456]"
+        viewer_match = re.search(r'\[VIEWER_ID:(\d+)\]', mensagem)
+        if viewer_match:
+          viewer_id = int(viewer_match.group(1))
+        else:
+          # TENTAR BUSCAR POR EMAIL NA MENSAGEM
+          # A MENSAGEM TEM O FORMATO: "{nome} ({email}) deseja acessar..."
+          email_match = re.search(r'\(([^)]+@[^)]+)\)', mensagem)
+          if email_match:
+            viewer_email = email_match.group(1)
+            viewer_user = User.query.filter_by(email=viewer_email).first()
+            if viewer_user:
+              viewer_id = viewer_user.id
+      
+      if not viewer_id:
+        return jsonify({"message": "Não foi possível identificar o profissional na solicitação."}), 400
+      
+      # VERIFICAR SE JÁ EXISTE UM SHARE
+      existing_share = Share.query.filter_by(
+        owner_id=owner_id,
+        viewer_id=viewer_id
+      ).first()
+      
+      if existing_share:
+        # SHARE JÁ EXISTE, APENAS MARCAR NOTIFICAÇÃO COMO LIDA
+        notification.lida = True
+        db.session.commit()
+      else:
+        # CRIAR O SHARE AGORA QUE FOI ACEITO
+        viewer_user = User.query.get(viewer_id)
+        if not viewer_user:
+          return jsonify({"message": "Profissional não encontrado."}), 404
+        
+        new_share = Share(
+          owner_id=owner_id,
+          viewer_id=viewer_id,
+          viewer_email=viewer_user.email,
+          escopo="read",
+          expira_em=None,
+        )
+        db.session.add(new_share)
+        db.session.flush()
+        
+        # MARCAR NOTIFICAÇÃO COMO LIDA E VINCULAR AO SHARE
+        notification.lida = True
+        try:
+          inspector = sqlalchemy_inspect(Notification)
+          has_share_id = 'share_id' in [col.name for col in inspector.columns]
+          if has_share_id:
+            notification.share_id = new_share.id
+        except Exception:
+          pass
+        
+        db.session.commit()
+        
+        # CRIAR NOTIFICAÇÃO PARA O PROFISSIONAL
+        notification_data = {
+          "user_id": viewer_id,
+          "tipo": "share_accepted",
+          "titulo": "Acesso concedido",
+          "mensagem": f"{user.nome_completo} aceitou sua solicitação de acesso aos relatórios e rotinas.",
+        }
+        
+        try:
+          inspector = sqlalchemy_inspect(Notification)
+          has_share_id = 'share_id' in [col.name for col in inspector.columns]
+          if has_share_id:
+            notification_data["share_id"] = new_share.id
+        except Exception:
+          pass
+        
+        accept_notification = Notification(**notification_data)
+        db.session.add(accept_notification)
+        db.session.commit()
+        
+        # INVALIDAR CACHE
+        cache.invalidate_pattern(f"shares:user:{owner_id}")
+        cache.invalidate_pattern(f"shares:user:{viewer_id}")
+        cache.invalidate_pattern(f"notifications:user:{viewer_id}")
+        
+        return jsonify({
+          "message": "Solicitação aceita com sucesso. O profissional agora tem acesso aos seus relatórios e rotinas.",
+          "status": "accepted",
+          "share_id": new_share.id
+        }), 200
+    else:
+      # REJEITAR: APENAS MARCAR NOTIFICAÇÃO COMO LIDA (NÃO CRIAR SHARE)
+      # USAR O viewer_id JÁ EXTRAÍDO ANTERIORMENTE
+      viewer_id = viewer_id_from_notif
+      
+      # SE NÃO CONSEGUIMOS EXTRAIR ANTES, TENTAR NOVAMENTE
+      if not viewer_id:
+        viewer_match = re.search(r'\[VIEWER_ID:(\d+)\]', mensagem)
+        if viewer_match:
+          viewer_id = int(viewer_match.group(1))
+        else:
+          # TENTAR EXTRAIR EMAIL
+          email_match = re.search(r'\(([^)]+@[^)]+)\)', mensagem)
+          if email_match:
+            viewer_email = email_match.group(1)
+            viewer_user = User.query.filter_by(email=viewer_email).first()
+            if viewer_user:
+              viewer_id = viewer_user.id
+      
+      notification.lida = True
+      db.session.commit()
+      
+      # CRIAR NOTIFICAÇÃO PARA O PROFISSIONAL
+      if viewer_id:
+        reject_notification = Notification(
+          user_id=viewer_id,
+          tipo="share_rejected",
+          titulo="Acesso negado",
+          mensagem=f"{user.nome_completo} rejeitou sua solicitação de acesso aos relatórios e rotinas.",
+        )
+        db.session.add(reject_notification)
+        db.session.commit()
+        
+        # INVALIDAR CACHE
+        cache.invalidate_pattern(f"notifications:user:{viewer_id}")
+      
+      return jsonify({
+        "message": "Solicitação rejeitada.",
+        "status": "rejected"
+      }), 200
+  except Exception as e:
+    db.session.rollback()
+    import traceback
+    error_trace = traceback.format_exc()
+    print(f"ERRO em respond_share: {error_trace}")
+    return jsonify({
+      "message": f"Erro ao processar resposta: {str(e)}",
+      "error": str(e)
+    }), 500
 
 
 @api_bp.route("/shares/<int:share_id>", methods=["DELETE"])
@@ -1288,6 +1608,7 @@ def list_notifications():
       "mensagem": notif.mensagem,
       "lida": notif.lida,
       "care_link_id": notif.care_link_id,
+      "share_id": notif.share_id,
       "created_at": notif.created_at.isoformat(),
     })
   

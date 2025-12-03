@@ -19,6 +19,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     _loadNotifications();
   }
 
+  String _cleanNotificationMessage(String mensagem) {
+    // REMOVER IDs TÉCNICOS DA MENSAGEM (TUDO APÓS |||)
+    return mensagem.split('|||').first.trim();
+  }
+
   Future<void> _loadNotifications() async {
     setState(() {
       _loading = true;
@@ -96,6 +101,36 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  Future<void> _respondToShare(int notificationId, bool accept) async {
+    final result = await ApiService.respondShare(
+      shareId: notificationId, // BACKEND AGORA ESPERA notification_id NO LUGAR DE share_id
+      accept: accept,
+    );
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      await _loadNotifications();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            accept ? 'Acesso concedido com sucesso!' : 'Acesso negado.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result['message']?.toString() ?? 'Erro ao responder solicitação',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   void _showResponseDialog(int careLinkId, String cuidadorNome) {
     if (!mounted) return;
     
@@ -120,6 +155,39 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               onPressed: () {
                 Navigator.of(dialogContext).pop();
                 _respondToCareLink(careLinkId, true);
+              },
+              child: const Text('Sim'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showShareResponseDialog(int notificationId, String profissionalNome) {
+    if (!mounted) return;
+    
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Confirmar Acesso'),
+          content: Text(
+            '$profissionalNome deseja acessar seus relatórios e rotinas. Deseja permitir?',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _respondToShare(notificationId, false);
+              },
+              child: const Text('Não'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _respondToShare(notificationId, true);
               },
               child: const Text('Sim'),
             ),
@@ -259,6 +327,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                     
                                     // Abrir modal de confirmação imediatamente
                                     _showResponseDialog(careLinkId, cuidadorNome);
+                                  } else if (tipo == 'share_request') {
+                                    final mensagem = notif['mensagem'] as String? ?? '';
+                                    // Remover IDs técnicos da mensagem (tudo após |||)
+                                    final mensagemLimpa = mensagem.split('|||').first;
+                                    // Extrair nome do profissional da mensagem
+                                    final match = RegExp(r'^(.+?) \(').firstMatch(mensagemLimpa);
+                                    final profissionalNome = match?.group(1) ?? 'Profissional';
+                                    
+                                    // USAR O ID DA NOTIFICAÇÃO, NÃO O share_id
+                                    final notificationId = notif['id'] as int?;
+                                    if (notificationId == null) return;
+                                    
+                                    // NÃO MARCAR COMO LIDA AINDA - SÓ MARCA DEPOIS DE RESPONDER
+                                    // A notificação será marcada como lida no backend quando for respondida
+                                    
+                                    // Abrir modal de confirmação imediatamente
+                                    _showShareResponseDialog(notificationId, profissionalNome);
                                   } else {
                                     // Para outras notificações, apenas marcar como lida
                                     if (isUnread && notif['id'] != null) {
@@ -303,7 +388,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                     children: [
                                       const SizedBox(height: 4),
                                       Text(
-                                        notif['mensagem'] as String? ?? '',
+                                        _cleanNotificationMessage(notif['mensagem'] as String? ?? ''),
                                         style: TextStyle(
                                           color: Theme.of(context).textTheme.bodyMedium?.color ?? 
                                                  (Theme.of(context).brightness == Brightness.dark 

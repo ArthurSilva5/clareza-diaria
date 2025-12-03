@@ -177,11 +177,12 @@ class Notification(BaseModel):
     __tablename__ = "notifications"
 
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    tipo = db.Column(db.String(50), nullable=False)  # care_link_request, care_link_accepted, etc.
+    tipo = db.Column(db.String(50), nullable=False)  # care_link_request, care_link_accepted, share_request, share_accepted, etc.
     titulo = db.Column(db.String(255), nullable=False)
     mensagem = db.Column(db.Text, nullable=False)
     lida = db.Column(db.Boolean, default=False, nullable=False)
     care_link_id = db.Column(db.Integer, db.ForeignKey("care_links.id"), nullable=True, index=True)
+    share_id = db.Column(db.Integer, db.ForeignKey("shares.id"), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(
         db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
@@ -189,5 +190,6 @@ class Notification(BaseModel):
 
     user = db.relationship("User", back_populates="notifications")
     care_link = db.relationship("CareLink", foreign_keys=[care_link_id])
+    share = db.relationship("Share", foreign_keys=[share_id])
 
 

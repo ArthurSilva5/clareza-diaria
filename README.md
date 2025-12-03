@@ -40,7 +40,6 @@
 
 
 
-
 # Resumo: Funcionamento Offline
 
 1. Armazenamento local:
